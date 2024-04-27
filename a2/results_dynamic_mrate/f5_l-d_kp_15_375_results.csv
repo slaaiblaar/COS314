@@ -1,0 +1,2 @@
+Average Time Normal,Average Time Memetic,Best Value Normal,Best Value Memetic,Average Best Normal,Average Best Memetic,Generations,Population Size,Crossover Rate,Mutation Rate,Elitism Count,Average Generation of Best Value Normal,Average Generation of Best Value Memetic
+0.0504163,0.394935,481.069,481.069,481.069,481.069,500,15,0.9,0.0722077,2,42.25,1

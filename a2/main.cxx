@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <bitset>
 #include <stack>
+#include <cmath>
 template<size_t bit_len>
 class Solution {
     public:
@@ -58,6 +59,7 @@ class GA {
     public:
         std::string filename;
         bool debug = false;
+        unsigned int seed = 0;
         GA(
             std::vector<std::array<double, 3>> items, 
             int length, 
@@ -81,7 +83,6 @@ class GA {
             memetic(memetic),
             debug(debug)
         {
-            unsigned int seed = 0;
             if (debug) {
                 std::cout << "Debugging" << std::endl;
             }
@@ -97,10 +98,12 @@ class GA {
             this->items = new std::array<double, 3>[length];
             for (int i = 0; i < length; i++) {
                 this->items[i] = items[i];
+                this->avgWeight += items[i][1];
                 if (debug) 
                     std::cout << "Item " << i << ": " << items[i][0] << " " << items[i][1] << " " << items[i][2] << std::endl;
                 
             }
+            this->avgWeight /= length;
 
             this->itemsEfficiencyIndex = new int[length];
             for (int i = 0; i < length; i++) {
@@ -120,6 +123,17 @@ class GA {
             this->init();
             // std::cout << "Init complete" << std::endl;
             this->bestFitnessPerGeneration = new double[generations];
+
+            int solSize = round(knapsackMax / avgWeight);
+            long long combinations = numItems;
+            for (int i = 1; i < solSize; i++) {
+                combinations *= numItems - i;
+                combinations /= i + 1;
+            }
+            double ratio = (double)combinations / populationSize;
+            double logRatio = log10(ratio);
+
+            this->mutationRate = 0.01 + (0.1 - 0.01) * (logRatio - 0) / (log10(combinations) - 0);
         }
         ~GA(){
             // std::cout << "GA destructor" << std::endl;
@@ -192,10 +206,9 @@ class GA {
             //     std::cout << "\t" << i << ": ";
             //     population[i].print();
             // }
-            std::cout << "\t Gen " << std::setw(4) << std::setfill('0') << generationOfBest << ". Best sol: ";
-            population[0].print();
+            // std::cout << "\t Gen " << std::setw(4) << std::setfill('0') << generationOfBest << ". Best sol: ";
+            // population[0].print();
             // std::cout << "Value: " << fitness(population[0].chromosome) << std::endl;
-            localSearch(population[0]);
             // std::cout << "Done" << std::endl;
         }
         std::vector<Solution<111>> population;
@@ -211,6 +224,7 @@ class GA {
         // pair->first is id, pair->second is weight
         std::array<double, 3> *items;
         int numItems;
+        double avgWeight = 0;
         double totalFitness;
         int generationOfBest;
         int* itemsEfficiencyIndex;
@@ -593,7 +607,7 @@ class GA {
             //     std::cout << "Replacing" << std::endl;
             for (int i = 0; i < offspring.size(); i++) {
                 bool chromosomeExists = exists(offspring[i].chromosome, &population);
-                if (chromosomeExists == false && offspring[i].weight < knapsackMax) {
+                if (chromosomeExists == false && offspring[i].weight <= knapsackMax) {
                     population.push_back(offspring[i]);
                 }
             }
@@ -769,19 +783,22 @@ class SearchConfig {
         double mutationRate;
         int elitismCount;
         std::string filename;
+        double optimum;
         SearchConfig(
             int populationSize, 
             int generations, 
             double crossoverRate, 
             double mutationRate, 
             int elitismCount, 
-            std::string filename
+            std::string filename,
+            double optimum
         ) : populationSize(populationSize), 
             generations(generations), 
             crossoverRate(crossoverRate), 
             mutationRate(mutationRate), 
             elitismCount(elitismCount), 
-            filename(filename)
+            filename(filename),
+            optimum(optimum)
         {}
 };
 int main() {
@@ -852,69 +869,92 @@ int main() {
         }
     }
 
-    bool runAll = true;
-    if (!runAll) {
-        SearchConfig conf(23, 500, 0.9, 0.05, 1, "f8_l-d_kp_23_10000");
-        double avgTime = 0;
-        for (int i = 0; i < 20; ++i) {
-            clock_t start = clock();
-            // GA(items, length, knapsackMax, populationSize, generations, crossoverRate, mutationRate, elitismCount, memetic, filename)
-            // GA ga(
-            //     datasets["f5_l-d_kp_15_375"].first, datasets["f5_l-d_kp_15_375"].first.size(), datasets["f5_l-d_kp_15_375"].second, 
-            //     45, 1000, 0.9, 0.1, 4, false
-            //     // "f5_l-d_kp_15_375" // filename (for seeding random number generator)
-            // );
-            GA ga(
-                datasets[conf.filename].first, 
-                datasets[conf.filename].first.size(), 
-                datasets[conf.filename].second,
-                conf.populationSize, 
-                conf.generations, 
-                conf.crossoverRate, 
-                conf.mutationRate, 
-                conf.elitismCount, 
-                true,
-                true
-            );
-            ga.run();
-            clock_t end = clock();
-            double time = (double)(end - start) / CLOCKS_PER_SEC;
-            avgTime += time;
-        }
-        avgTime /= 20;
-        std::cout << "Average time taken: " << avgTime << "s" << std::endl;
-
-    }
-
-    // Run GA on each dataset with many different configurations as follows:
-    // 1. Population Sizes between 5 and thrice the number of items in the dataset
-    // 2. Generations between 100 and 1000
-    // 3. Crossover Rates between 0.5 and 0.9
-    // 4. Mutation Rates between 0.01 and 0.1
-    // 5. Elitism Counts between 1 and half the population size
-    // 6. Memetic Algorithm on and off
-    // Store the following in a csv file named "${filename}_results.csv" and "${filename}_results_memetic.csv":
-    // 1. Average time
-    // 2. Best value
-    // 3. Number of generations
-    // 4. Population Size
-    // 5. Crossover Rate
-    // 6. Mutation Rate
-    // 7. Elitism Count
-    // 8. Generation in which best value was found
     std::vector<SearchConfig> searchConfigs({
-        SearchConfig(10, 500, 0.9, 0.05, 1, "f1_l-d_kp_10_269"),
-        SearchConfig(20, 500, 0.9, 0.05, 1, "f2_l-d_kp_20_878"),
-        SearchConfig(4, 500, 0.9, 0.05, 1, "f3_l-d_kp_4_20"),
-        SearchConfig(4, 500, 0.9, 0.05, 1, "f4_l-d_kp_4_11"),
-        SearchConfig(15, 500, 0.9, 0.05, 1, "f5_l-d_kp_15_375"),
-        SearchConfig(10, 500, 0.9, 0.05, 1, "f6_l-d_kp_10_60"),
-        SearchConfig(7, 500, 0.9, 0.05, 1, "f7_l-d_kp_7_50"),
-        SearchConfig(23, 500, 0.9, 0.05, 1, "f8_l-d_kp_23_10000"),
-        SearchConfig(5, 500, 0.9, 0.05, 1, "f9_l-d_kp_5_80"),
-        SearchConfig(20, 500, 0.9, 0.05, 1, "f10_l-d_kp_20_879"),
-        SearchConfig(100, 500, 0.9, 0.05, 1, "knapPI_1_100_1000_1")
+        SearchConfig(10, 500, 0.9, 0.05, 1, "f1_l-d_kp_10_269", 295),
+        SearchConfig(20, 500, 0.9, 0.05, 2, "f2_l-d_kp_20_878", 1024),
+        SearchConfig(4, 500, 0.9, 0.05, 1, "f3_l-d_kp_4_20", 35),
+        SearchConfig(4, 500, 0.9, 0.05, 1, "f4_l-d_kp_4_11", 23),
+        SearchConfig(15, 500, 0.9, 0.05, 2, "f5_l-d_kp_15_375", 481.0694),
+        SearchConfig(10, 500, 0.9, 0.05, 1, "f6_l-d_kp_10_60", 52),
+        SearchConfig(7, 500, 0.9, 0.05, 1, "f7_l-d_kp_7_50",107),
+        SearchConfig(23, 500, 0.9, 0.05, 3, "f8_l-d_kp_23_10000", 9767),
+        SearchConfig(5, 500, 0.9, 0.05, 1, "f9_l-d_kp_5_80", 130),
+        SearchConfig(20, 500, 0.9, 0.05, 2, "f10_l-d_kp_20_879", 1025),
+        SearchConfig(100, 500, 0.9, 0.05, 10, "knapPI_1_100_1000_1", 9147)
     });
+    bool runSeeded = false;
+    if (runSeeded) {
+        std::ofstream results("./results/seeded.csv");
+        results << "Problem Instance,"
+                << "Algorithm,"
+                << "Seed Value,"
+                << "Best Solution,"
+                << "Known Optimum,"
+                << "Runtime";
+        for (SearchConfig config : searchConfigs) {
+            double *avgBestPerGeneration = new double[config.generations];
+            for (int i = 0; i < config.generations; i++) {
+                avgBestPerGeneration[i] = 0;
+            }
+            double *avgBestPerGenerationMemetic = new double[config.generations];
+            for (int i = 0; i < config.generations; i++) {
+                avgBestPerGenerationMemetic[i] = 0;
+            }
+            double bestValue = 0;
+            int seed = 0;
+
+            for (bool memetic : {false, true}) {
+                std::cout << "Running " << config.filename << (memetic ? " with memetic" : " without memetic") << std::endl;
+                // generations << "Generation,Average Best\n";
+                clock_t start = clock();
+                GA ga(
+                    datasets[config.filename].first, // items
+                    datasets[config.filename].first.size(), // length
+                    datasets[config.filename].second, // knapsackMax
+                    config.populationSize, // populationSize
+                    config.generations, // generations
+                    config.crossoverRate, // crossoverRate
+                    config.mutationRate, // mutationRate
+                    config.elitismCount, // elitismCount
+                    memetic, // memetic
+                    false,
+                    config.filename // filename (for seeding random number generator)
+                );
+                std::cout << "\tAverage weight: " << ga.avgWeight << std::endl;
+                std::cout << "\tNum Items: " << ga.numItems << std::endl;
+                std::cout << "\tPopulation size: " << ga.populationSize << std::endl;
+                int solSize = round(ga.knapsackMax / ga.avgWeight);
+                std::cout << "\tAverage solution size: " <<  solSize << "(" << round(ga.knapsackMax / ga.avgWeight) << ")" << std::endl;
+                // roof of knapsackMax / avgWeight
+                long long combinations = ga.numItems;
+                for (int x = 1; x < solSize; x++) {
+                    // std::cout << "\t\tCombination " << x << ": " << combinations << std::endl;
+                    combinations *= ga.numItems - x;
+                    combinations /= x + 1;
+                }
+                std::cout << "\tPotential number of solutions: " << combinations << std::endl;
+                ga.run();
+                double ratio = combinations / ga.populationSize;
+                // std::cout << "\tMutation Rate: " << (0.01 + (0.1 - 0.01) * (ratio - 1) / (combinations - 1)) << std::endl;
+                double logRatio = log10(ratio);
+                double mutationRate = 0.01 + (0.1 - 0.01) * (logRatio - 0) / (log10(combinations) - 0);
+                std::cout << "\tMutation Rate: " << mutationRate << std::endl;
+                std::cout << "\tBest Sol: ";
+                ga.population[0].print();
+                bestValue = ga.population[0].value;
+                clock_t end = clock();
+                double time = (double)(end - start) / CLOCKS_PER_SEC;
+                results << config.filename << ","
+                        << (memetic ? "Memetic" : "Genetic") << ","
+                        << ga.seed << ","
+                        << bestValue << ","
+                        << config.optimum << ","
+                        << time << std::endl;
+            }
+        }
+        results.close();
+    }
+    bool runAll = true;
     if (runAll)
     for (SearchConfig config : searchConfigs) {
         double *avgBestPerGeneration = new double[config.generations];
@@ -952,7 +992,7 @@ int main() {
 
         int numIterations = 40;
         for (bool memetic : {false, true}) {
-            std::cout << "Running " << config.filename << (memetic ? " with memetic\n" : " without memetic\n") << std::endl;
+            std::cout << "Running " << config.filename << (memetic ? " with memetic" : " without memetic") << std::endl;
             // generations << "Generation,Average Best\n";
             for (int i = 0; i < numIterations; ++i) {
                 clock_t start = clock();
@@ -971,6 +1011,10 @@ int main() {
                 );
                 ga.run();
                 clock_t end = clock();
+                config.mutationRate = ga.mutationRate;
+                config.crossoverRate = ga.crossoverRate;
+                config.populationSize = ga.populationSize;
+                config.generations = ga.generations;
                 double time = (double)(end - start) / CLOCKS_PER_SEC;
                 if (memetic) {
                     avgBestMemetic += ga.population[0].value;
@@ -1016,98 +1060,15 @@ int main() {
                 << avgBestGenNormal << "," 
                 << avgBestGenMemetic << "\n";
         for (int i = 0; i < config.generations; i++) {
-            generations << i << "," << (avgBestPerGeneration[i] / (double)numIterations) << "," << (avgBestPerGenerationMemetic[1] / (double)numIterations) << "\n";
+            double normal = avgBestPerGeneration[i] / (double)numIterations;
+            double memetic = avgBestPerGenerationMemetic[i] / (double)numIterations;
+            // std::cout << "\t" << i << ": " << memetic << std::endl;
+            generations << i << "," << normal << "," << memetic << "\n";
         }
         delete [] avgBestPerGeneration;
         delete [] avgBestPerGenerationMemetic;
         results.close();
         generations.close();
     }
-
-    if (false)
-    for (auto dataset : datasets) {
-        std::string filename = dataset.first;
-        // std::ofstream results
-        // ("./results/" + filename + "_results.csv");
-        // results << "Average Time,Best Value,Average Best,Generations,Population Size,Crossover Rate,Mutation Rate,Elitism Count,Generation of Best Value\n";
-        std::ofstream resultsMemetic
-        ("./results/" + filename + "_results_memetic.csv");
-        resultsMemetic << "Average Time,Best Value,Average Best,Generations,Population Size,Crossover Rate,Mutation Rate,Elitism Count,Generation of Best Value\n";
-        for (int populationSize = dataset.second.first.size(); populationSize <= dataset.second.first.size() * 3; populationSize += dataset.second.first.size()) {
-            // for (int generations = 100; generations <= 300; generations += 100) {
-            int generations = 600;
-                for (double crossoverRate = 0.5; crossoverRate <= 0.9; crossoverRate += 0.1) {
-                    for (double mutationRate = 0.05; mutationRate <= 0.1; mutationRate += 0.01) {
-                        // for (int elitismCount = 1; elitismCount <= populationSize / 2; elitismCount++) {
-                            // elitism is max(1, 0.1*populationSize)
-                            int elitismCount = std::max(1, (int) (0.1 * populationSize));
-                            // for (bool memetic : {true, false}) {
-                                bool memetic = true;
-                                double avgTime = 0;
-                                double bestValue = 0;
-                                int bestGeneration = 0;
-                                double avgBestValue = 0;
-                                std::cout << "Current configuration: file: " << filename << "pop size: " << populationSize << ", gens: " << generations << ", x rate: " << crossoverRate << ", m rate: " << mutationRate << ", elites: " << elitismCount << ", memetic: " << memetic << std::endl;
-                                for (int i = 0; i < 20; ++i) {
-                                    clock_t start = clock();
-                                    GA ga(
-                                        dataset.second.first, // items
-                                        dataset.second.first.size(), // length
-                                        dataset.second.second, // knapsackMax
-                                        populationSize, // populationSize
-                                        generations, // generations
-                                        crossoverRate, // crossoverRate
-                                        mutationRate, // mutationRate
-                                        elitismCount, // elitismCount
-                                        memetic, // memetic
-                                        false
-                                        // filename // filename (for seeding random number generator)
-                                    );
-                                    ga.run();
-                                    clock_t end = clock();
-                                    double time = (double)(end - start) / CLOCKS_PER_SEC;
-                                    avgTime += time;
-                                    avgBestValue += ga.population[0].value;
-                                    if (ga.population[0].value > bestValue) {
-                                        bestValue = ga.population[0].value;
-                                        bestGeneration = ga.generationOfBest;
-                                    }
-                                }
-                                avgTime /= 20;
-                                avgBestValue /= 20;
-                                if (memetic) {
-                                    resultsMemetic << avgTime << "," << bestValue << "," << avgBestValue << "," << generations << "," << populationSize << "," << crossoverRate << "," << mutationRate << "," << elitismCount << "," << bestGeneration << "\n";
-                                } else {
-                                    // results << avgTime << "," << bestValue << "," << avgBestValue << "," << generations << "," << populationSize << "," << crossoverRate << "," << mutationRate << "," << elitismCount << "," << bestGeneration << "\n";
-                                }
-                            // }
-                        // }
-                    }
-                }
-            // }
-        }
-        // results.close();
-        resultsMemetic.close();
-    }
-
-
-    // clock_t start = clock();
-    // GA ga(datasets["f5_l-d_kp_15_375"].first, datasets["f5_l-d_kp_15_375"].first.size(), datasets["f5_l-d_kp_15_375"].second, 500, 100, 0.8, 0.05, 10, false, "f5_l-d_kp_15_375");
-    // // ga.init();
-    // // for (int popI = 0; popI < ga.population.size(); popI++) {
-    // //     std::cout << popI << ": ";
-    // //     for (int i = 0; i < ga.population[popI].length; i++) {
-    // //         std::cout << ga.population[popI].chromosome[i] << " ";
-    // //     }
-    // //     std::cout << ", Value: " << ga.population[popI].value;
-    // //     std::cout << ", Weight: " << ga.population[popI].weight << std::endl;
-    // // }
-    // // start time
-    // ga.run();
-    // // end time
-    // clock_t end = clock();
-    // double time = (double)(end - start) / CLOCKS_PER_SEC;
-    // std::cout << "Time taken: " << time << "s" << std::endl;
-
     return 0;
 }
